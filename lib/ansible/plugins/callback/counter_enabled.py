@@ -181,12 +181,43 @@ class CallbackModule(CallbackBase):
                 msg += " => %s" % (self._dump_results(result._result),)
             self._display.display(msg, color=color)
 
+    def _process_items(self, result):
+        loop_counter = 1
+        loop_total = len(result._result['results'])
+        delegated_vars = result._result.get('_ansible_delegated_vars', None)
+        for res in result._result['results']:
+            result_type = ""
+            if isinstance(result._task, TaskInclude):
+                continue
+            elif res.get('failed', False):
+                result_type = "fatal"
+                color = C.COLOR_ERROR
+            elif res.get('changed', False):
+                result_type = "changed"
+                color = C.COLOR_CHANGED
+            elif res.get('skipped', False):
+                result_type = "skipped"
+                color = C.COLOR_SKIP
+            else:
+                result_type = "ok"
+                color = C.COLOR_OK
+            if delegated_vars:
+                msg = "%s: %d/%d [%s -> %s] => (item=%s)" % (result_type, loop_counter, loop_total, result._host.get_name(),
+                                                             delegated_vars['ansible_host'],res.get('_ansible_item_label'))
+            else:
+                msg = "%s: %d/%d [%s] => (item=%s)" % (result_type, loop_counter, loop_total, result._host.get_name(), res.get('_ansible_item_label'))
+            if self._run_is_verbose(result) or res.get('failed', False):
+                self._clean_results(res, result._task.action)
+                msg += " => %s" % (self._dump_results(res),)
+            self._display.display(msg, color=color)
+            loop_counter += 1
+        super(CallbackModule, self)._process_items(result)
+
     def v2_runner_on_failed(self, result, ignore_errors=False):
 
         self._host_counter += 1
 
         delegated_vars = result._result.get('_ansible_delegated_vars', None)
-        self._clean_results(result._result, result._task.action)
 
         if self._play.strategy == 'free' and self._last_task_banner != result._task._uuid:
             self._print_task_banner(result._task)
@@ -196,8 +227,8 @@ class CallbackModule(CallbackBase):
 
         if result._task.loop and 'results' in result._result:
             self._process_items(result)
-
         else:
+            self._clean_results(result._result, result._task.action)
             if delegated_vars:
                 self._display.display("fatal: %d/%d [%s -> %s]: FAILED! => %s" % (self._host_counter, self._host_total,
                                                                                   result._host.get_name(), delegated_vars['ansible_host'],
@@ -216,7 +247,6 @@ class CallbackModule(CallbackBase):
 
         if self._plugin_options.get('show_skipped_hosts', C.DISPLAY_SKIPPED_HOSTS):  # fallback on constants for inherited plugins missing docs
 
-            self._clean_results(result._result, result._task.action)
 
             if self._play.strategy == 'free' and self._last_task_banner != result._task._uuid:
                 self._print_task_banner(result._task)
@@ -224,6 +254,7 @@ class CallbackModule(CallbackBase):
             if result._task.loop and 'results' in result._result:
                 self._process_items(result)
             else:
+                self._clean_results(result._result, result._task.action)
                 msg = "skipping: %d/%d [%s]" % (self._host_counter, self._host_total, result._host.get_name())
                 if self._run_is_verbose(result):
                     msg += " => %s" % self._dump_results(result._result)
